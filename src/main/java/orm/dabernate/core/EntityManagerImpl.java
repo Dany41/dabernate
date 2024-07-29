@@ -1,5 +1,6 @@
 package orm.dabernate.core;
 
+import com.zaxxer.hikari.HikariDataSource;
 import jakarta.persistence.*;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaDelete;
@@ -7,10 +8,22 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.CriteriaUpdate;
 import jakarta.persistence.metamodel.Metamodel;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
 
 public class EntityManagerImpl implements EntityManager {
+
+    private HikariDataSource dataSource;
+
+    public EntityManagerImpl(HikariDataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+
     @Override
     public void persist(Object entity) {
 
@@ -28,7 +41,46 @@ public class EntityManagerImpl implements EntityManager {
 
     @Override
     public <T> T find(Class<T> entityClass, Object primaryKey) {
-        return null;
+        String tableName = resolveTableName(entityClass);
+        try (var connection = this.dataSource.getConnection();) {
+            Statement statement = connection.createStatement();
+            statement.execute("SELECT * FROM " + tableName + " WHERE id = " + primaryKey);
+            return constructEntity(entityClass, statement.getResultSet());
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private <T> T constructEntity(Class<T> entityClass, ResultSet resultSet) {
+        try {
+            T entity = entityClass.getDeclaredConstructor().newInstance();
+            resultSet.next();
+            Field[] declaredFields = entityClass.getDeclaredFields();
+            for (Field declaredField : declaredFields) {
+                if (declaredField.isAnnotationPresent(Column.class)) {
+                    Column column = declaredField.getAnnotation(Column.class);
+                    String columnName = column.name();
+                    declaredField.setAccessible(true);
+                    declaredField.set(entity, resultSet.getString(columnName));
+                }
+                if (declaredField.isAnnotationPresent(Id.class)) {
+                    declaredField.setAccessible(true);
+                    declaredField.set(entity, resultSet.getLong(declaredField.getName()));
+                }
+            }
+            return entity;
+        } catch (SQLException | NoSuchMethodException | InstantiationException | IllegalAccessException |
+                 InvocationTargetException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private <T> String resolveTableName(Class<T> entityClass) {
+        if (entityClass.isAnnotationPresent(Table.class)) {
+            return entityClass.getAnnotation(Table.class).name();
+        } else {
+            return entityClass.getSimpleName();
+        }
     }
 
     @Override

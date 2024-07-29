@@ -1,5 +1,7 @@
 package orm.dabernate.core;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import jakarta.persistence.*;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.metamodel.Metamodel;
@@ -7,9 +9,22 @@ import jakarta.persistence.metamodel.Metamodel;
 import java.util.Map;
 
 public class EntityManagerFactoryImpl implements EntityManagerFactory {
+
+    private HikariDataSource dataSource;
+
     @Override
     public EntityManager createEntityManager() {
-        return new EntityManagerImpl();
+        configureDataSource();
+
+        return new EntityManagerImpl(this.dataSource);
+    }
+
+    private void configureDataSource() {
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl("jdbc:postgresql://localhost:5432/postgres");
+        config.setUsername("postgres");
+        config.setPassword("postgres");
+        this.dataSource = new HikariDataSource(config);
     }
 
     @Override
@@ -44,7 +59,7 @@ public class EntityManagerFactoryImpl implements EntityManagerFactory {
 
     @Override
     public void close() {
-
+        this.dataSource.close();
     }
 
     @Override
